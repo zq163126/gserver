@@ -39,26 +39,15 @@ def setup_driver():
         options.add_argument(f'--proxy-server={PROXY_SOCKS5}')
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-def handle_ads_if_exists(driver):
-    """
-    逻辑：查找广告，有则隐藏，无则跳过。
-    """
+def hide_ads_div(driver):
+    """仅保留隐藏 DIV 的逻辑，不点击任何按钮，避免触发倒计时逻辑"""
     try:
-        # 1. 检查 No Thanks
-        buttons = driver.find_elements(By.TAG_NAME, "button")
-        for btn in buttons:
-            if "No Thanks" in btn.text and btn.is_enabled():
-                btn.click()
-                time.sleep(2)
-                print("[LOG] 已点击 No Thanks")
-        
-        # 2. 检查 z-index: 45 的遮罩
-        ads_div = driver.find_elements(By.CSS_SELECTOR, "div[style*='z-index: 45']")
-        if ads_div:
-            driver.execute_script("arguments[0].style.display = 'none';", ads_div[0])
-            print("[LOG] 已隐藏广告遮罩")
+        ads_divs = driver.find_elements(By.CSS_SELECTOR, "div[style*='z-index: 45']")
+        for div in ads_divs:
+            driver.execute_script("arguments[0].style.display = 'none';", div)
+            print("[LOG] 已隐藏 z-index: 45 广告 DIV")
     except Exception as e:
-        print(f"[LOG] 去广告步骤异常: {e}")
+        print(f"[LOG] 隐藏广告 DIV 异常: {e}")
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -76,19 +65,15 @@ def login(driver):
 def manage_server(driver):
     wait = WebDriverWait(driver, 20)
     
-    # 1. 访问详情页
+    # --- 1. 启动操作 ---
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
-    time.sleep(5)
+    time.sleep(8) # 等待页面初步加载
+    hide_ads_div(driver) # 确保广告已隐藏
+    send_to_tg("已打开详情页，执行去广告并准备查找按钮", screenshot=True, driver=driver)
     
-    # 检查广告并去广告
-    handle_ads_if_exists(driver)
-    
-    # 查找 START/STOP 按钮
     try:
         btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Start') or contains(., 'STOP')]")))
-        btn_text = btn.text
-        
-        if "STOP" in btn_text:
+        if "STOP" in btn.text:
             send_to_tg("服务器正在工作中 (STOP)，无需启动。")
         else:
             btn.click()
@@ -97,19 +82,17 @@ def manage_server(driver):
         print(f"[LOG] 详情页操作失败: {e}")
         send_to_tg("详情页操作失败，请查看截图", screenshot=True, driver=driver)
 
-    # 2. 访问 Renew 页
+    # --- 2. 续期操作 ---
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
-    time.sleep(5)
-    
-    # 检查广告并去广告
-    handle_ads_if_exists(driver)
+    time.sleep(8)
+    hide_ads_div(driver) # 确保续期页广告已隐藏
+    send_to_tg("已打开续期页，执行去广告并读取时间", screenshot=True, driver=driver)
     
     try:
         expiry_input = wait.until(EC.presence_of_element_located((By.ID, "expires_at")))
         expiry_str = expiry_input.get_attribute("value")
         expiry_date = datetime.datetime.strptime(expiry_str.split(" - ")[0], "%d.%m.%Y")
         
-        # 判断是否小于 2 小时 (这里使用天数计算，若要精确小时，可改为 total_seconds)
         if (expiry_date - datetime.datetime.now()).total_seconds() <= 7200:
             renew_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Renew')]")))
             renew_btn.click()
