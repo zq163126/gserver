@@ -32,7 +32,7 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def force_hide_ads_css(driver):
-    """仅修复了导致报错的引号冲突，未改动其他逻辑"""
+    """注入 CSS 强制屏蔽广告"""
     css_content = "div[style*='z-index: 45'] { display: none !important; visibility: hidden !important; pointer-events: none !important; }"
     js = "var s = document.createElement('style'); s.innerHTML = arguments[0]; document.head.appendChild(s);"
     driver.execute_script(js, css_content)
@@ -43,7 +43,10 @@ def login(driver):
     driver.find_element(By.ID, "password").send_keys(PASSWORD)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
     time.sleep(5)
-    return "dashboard" in driver.current_url
+    if "dashboard" in driver.current_url:
+        send_to_tg("登录成功")
+        return True
+    return False
 
 def manage_server(driver):
     # 访问详情页
@@ -51,39 +54,39 @@ def manage_server(driver):
     time.sleep(10)
     force_hide_ads_css(driver)
     
-    # 查找并点击逻辑
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
             
     if target:
         btn_text = target.text.strip().upper()
-        print(f"[LOG] 找到按钮，文本为: {btn_text}")
         if btn_text == "START":
-            driver.execute_script("arguments[0].click();", target)
-            time.sleep(2) # 给服务器反应时间
-            send_to_tg("已执行服务器启动 (START) 操作")
+            # 强化点击逻辑：执行多次 JS 点击并等待页面响应
+            driver.execute_script("arguments[0].scrollIntoView();", target)
+            driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));")
+            driver.execute_script("arguments[0].click();")
+            time.sleep(5) # 等待页面处理启动请求
+            send_to_tg("已执行服务器启动 (START) 操作，并已截图确认状态。", screenshot=True, driver=driver)
         else:
-            send_to_tg("服务器处于运行状态 (STOP)，无需启动")
+            send_to_tg("服务器处于运行状态 (STOP)，无需启动。")
     else:
-        send_to_tg("按钮定位失败", screenshot=True, driver=driver)
+        send_to_tg("找不到按钮，已截图。", screenshot=True, driver=driver)
 
     # 续期逻辑
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(5)
+    force_hide_ads_css(driver)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
-        # 你的原续期逻辑
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
             renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
             driver.execute_script("arguments[0].click();", renew_btn)
-            send_to_tg(f"已执行续期，到期日: {val}")
+            time.sleep(3)
+            send_to_tg(f"已执行续期，当前到期日: {val}", screenshot=True, driver=driver)
     except Exception as e:
         send_to_tg(f"续期操作失败: {e}", screenshot=True, driver=driver)
 
 if __name__ == "__main__":
     driver = setup_driver()
     try:
-        if login(driver):
-            manage_server(driver)
-    finally:
-        driver.quit()
+        if login(driver): manage_server(driver)
+    finally: driver.quit()
