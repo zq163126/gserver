@@ -31,47 +31,54 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-def check_and_remove_ads(driver):
-    """交互前检查并处理广告，无广告时不作操作"""
+def detect_and_handle_ads(driver):
+    """先探查广告，在 LOG 输出结果，只有找到时才删除"""
     js = """
-    var ads = document.querySelectorAll('div[style*="z-index: 45"], div[style*="z-index: 50"]');
-    if (ads.length > 0) {
-        ads.forEach(function(el) { el.remove(); });
-        return true;
-    }
-    return false;
+    // 查找所有可能的广告元素
+    var ads = document.querySelectorAll('div[style*="z-index: 45"], div[style*="z-index: 50"], .ads, .modal');
+    var found = [];
+    ads.forEach(function(el) {
+        if (el.offsetWidth > 0 && el.offsetHeight > 0) {
+            found.push({tagName: el.tagName, id: el.id, className: el.className});
+            el.remove(); // 找到即删除
+        }
+    });
+    return found;
     """
-    if driver.execute_script(js):
-        print("[LOG] 检测并清除了广告")
-        time.sleep(2) # 给 DOM 刷新时间
+    found_elements = driver.execute_script(js)
+    
+    if found_elements:
+        print(f"[LOG] 发现并清理了 {len(found_elements)} 个广告元素: {found_elements}")
+    else:
+        print("[LOG] 未检测到任何广告遮罩")
+    return len(found_elements) > 0
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
+    detect_and_handle_ads(driver)
     driver.find_element(By.ID, "email").send_keys(EMAIL)
     driver.find_element(By.ID, "password").send_keys(PASSWORD)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
     time.sleep(5)
-    if "dashboard" in driver.current_url:
-        send_to_tg("登录成功", screenshot=True, driver=driver)
-        return True
-    return False
+    return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # --- 详情页处理 ---
+    # 1. 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(5)
     
     # 操作前检查
-    check_and_remove_ads(driver)
+    detect_and_handle_ads(driver)
     
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
             
-    # 如果没找到，触发二次检查
+    # 如果没找到，再做一次探测
     if not target:
-        check_and_remove_ads(driver)
-        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-        target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
+        print("[LOG] 未找到 START/STOP 按钮，进行二次广告检查...")
+        if detect_and_handle_ads(driver):
+            elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+            target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
     
     if target and target.text.strip().upper() == "START":
         driver.execute_script("arguments[0].click();", target)
@@ -80,12 +87,10 @@ def manage_server(driver):
     else:
         send_to_tg(f"按钮状态: {target.text if target else '未找到'}，无需启动。", screenshot=True, driver=driver)
 
-    # --- 续期页处理 ---
+    # 2. 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(5)
-    
-    # 操作前检查
-    check_and_remove_ads(driver)
+    detect_and_handle_ads(driver)
     
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
