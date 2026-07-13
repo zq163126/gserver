@@ -31,15 +31,20 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-def remove_ads_permanently(driver):
-    """直接物理删除广告 DOM 节点，避免 JS 冲突"""
-    driver.execute_script("""
-        var ads = document.querySelectorAll('div[style*="z-index: 45"], div[style*="z-index: 50"]');
-        ads.forEach(function(el) {
-            el.remove();
-        });
-    """)
-    print("[LOG] 已执行物理删除广告 DOM")
+def hide_ads_if_exists(driver):
+    """先检查是否存在广告，存在则注入 CSS 隐藏"""
+    js = """
+    var ads = document.querySelectorAll('div[style*="z-index: 45"], div[style*="z-index: 50"]');
+    if (ads.length > 0) {
+        var style = document.createElement('style');
+        style.innerHTML = 'div[style*="z-index: 45"], div[style*="z-index: 50"] { display: none !important; pointer-events: none !important; }';
+        document.head.appendChild(style);
+        return true;
+    }
+    return false;
+    """
+    found = driver.execute_script(js)
+    if found: print("[LOG] 监测到广告，已应用 CSS 隐藏")
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -53,37 +58,36 @@ def login(driver):
     return False
 
 def manage_server(driver):
-    # 1. 详情页处理
+    # 1. 详情页
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(10)
-    remove_ads_permanently(driver)
+    hide_ads_if_exists(driver)
     
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
             
     if target and target.text.strip().upper() == "START":
-        driver.execute_script("arguments[0].scrollIntoView(true);", target)
-        time.sleep(1)
-        driver.execute_script("arguments[0].click();", target)
-        time.sleep(10)
-        send_to_tg("已点击启动 (START)，正在等待服务器上线...", screenshot=True, driver=driver)
+        try:
+            target.click() # 尝试普通点击
+        except:
+            driver.execute_script("arguments[0].click();", target) # 若失败用 JS 强制点
+        
+        time.sleep(10) # 等待启动
+        send_to_tg("已点击启动 (START)，当前状态截图：", screenshot=True, driver=driver)
     else:
         send_to_tg(f"按钮状态: {target.text if target else '未找到'}，无需启动。", screenshot=True, driver=driver)
 
-    # 2. 续期页处理
+    # 2. 续期页
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
-    remove_ads_permanently(driver)
+    hide_ads_if_exists(driver)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
-        expiry_date = datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y")
-        if (expiry_date - datetime.datetime.now()).total_seconds() <= 7200:
+        if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
             renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
-            driver.execute_script("arguments[0].click();", renew_btn)
+            renew_btn.click()
             time.sleep(5)
             send_to_tg(f"已自动续期，到期日: {val}", screenshot=True, driver=driver)
-        else:
-            send_to_tg(f"无需续期，到期日: {val}", screenshot=True, driver=driver)
     except Exception as e:
         send_to_tg(f"续期处理异常: {str(e)}", screenshot=True, driver=driver)
 
