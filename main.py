@@ -13,66 +13,56 @@ BASE_URL, PROXY_SOCKS5 = os.getenv("BASE_URL"), os.getenv("PROXY_SOCKS5")
 bot = telebot.TeleBot(TG_BOT_TOKEN)
 
 def send_to_tg(message, screenshot=False, driver=None):
-    formatted = f"[gameserver] {message}"
     if screenshot and driver:
         driver.save_screenshot("screenshot.png")
         with open("screenshot.png", "rb") as photo:
-            bot.send_photo(TG_CHAT_ID, photo, caption=formatted)
+            bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] {message}")
     else:
-        bot.send_message(TG_CHAT_ID, formatted)
-
-def setup_driver():
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-    if PROXY_SOCKS5: options.add_argument(f'--proxy-server={PROXY_SOCKS5}')
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        bot.send_message(TG_CHAT_ID, f"[gameserver] {message}")
 
 def process_ads(driver):
     script = """
     let found = false;
-    function scan(root) {
-        let all = root.querySelectorAll('div, always-on-top-app');
-        all.forEach(el => {
-            if (window.getComputedStyle(el).zIndex == 45) {
-                el.style.display = 'none';
-                found = true;
-            }
-        });
-        root.querySelectorAll('always-on-top-app').forEach(s => {
-            if (s.shadowRoot) scan(s.shadowRoot);
-        });
-    }
-    scan(document);
+    let all = document.querySelectorAll('div, always-on-top-app');
+    all.forEach(el => {
+        if (window.getComputedStyle(el).zIndex == 45) {
+            el.style.display = 'none';
+            found = true;
+        }
+    });
     return found;
     """
     return driver.execute_script(script)
 
-def safe_action(driver, locator, action_type="click", timeout=15):
-    # 1. 查找前的状态确认
-    print(f"[LOG] 准备定位: {locator}")
+def safe_action(driver, locator, action_type="click", timeout=10):
+    # 第一次尝试
+    for attempt in range(2):
+        print(f"[LOG] 尝试定位 {locator}, 第 {attempt+1} 次")
+        
+        # 无论有没有广告，先清理一次
+        found = process_ads(driver)
+        print(f"[LOG] 广告检测: {'找到并清理' if found else '未发现广告'}")
+        
+        try:
+            wait = WebDriverWait(driver, timeout)
+            element = wait.until(EC.element_to_be_clickable(locator))
+            if action_type == "click":
+                element.click()
+                print(f"[LOG] 点击成功: {locator}")
+            return element
+        except Exception as e:
+            print(f"[LOG] 第 {attempt+1} 次查找 {locator} 失败")
+            if attempt == 0:
+                print("[LOG] 准备重试查找...")
+                time.sleep(2)
+                continue
     
-    # 2. 查找前截图，明确当前页面是否有广告
-    driver.save_screenshot("before_action.png")
-    
-    # 3. 广告检测与清理
-    ads_found = process_ads(driver)
-    print(f"[LOG] 广告检测状态: {'已检测并清理' if ads_found else '未检测到广告'}")
-    
-    try:
-        wait = WebDriverWait(driver, timeout)
-        element = wait.until(EC.element_to_be_clickable(locator))
-        if action_type == "click":
-            element.click()
-            print(f"[LOG] 操作成功: {locator}")
-        return element
-    except Exception as e:
-        print(f"[LOG] !!! 查找失败，发送截图给用户排查...")
-        with open("before_action.png", "rb") as photo:
-            bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] 操作失败，定位元素: {locator} 时出错。")
-        raise e
+    # 两次都失败，进行诊断
+    print(f"[LOG] !!! 致命错误：重试后依旧无法找到元素 {locator}")
+    driver.save_screenshot("failure.png")
+    with open("failure.png", "rb") as photo:
+        bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] 无法定位元素: {locator}。请检查网页结构是否已变更。")
+    raise Exception(f"定位元素失败: {locator}")
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -83,17 +73,16 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # 详情页
+    # 启动页
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(10)
-    
     try:
         btn = safe_action(driver, (By.XPATH, "//button[contains(., 'Start') or contains(., 'STOP')]"), "find")
         if "Start" in btn.text:
             safe_action(driver, (By.XPATH, "//button[contains(., 'Start')]"), "click")
             send_to_tg("已执行启动操作。")
     except Exception as e:
-        print(f"[LOG] 流程中断: {e}")
+        print(f"[LOG] 启动页流程中断: {e}")
 
     # 续期页
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
@@ -103,9 +92,9 @@ def manage_server(driver):
         val = expiry.get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).days <= 2:
             safe_action(driver, (By.XPATH, "//button[contains(text(), 'Renew')]"), "click")
-            send_to_tg(f"续期已完成。")
+            send_to_tg("续期已完成。")
     except Exception as e:
-        print(f"[LOG] 续期流程中断: {e}")
+        print(f"[LOG] 续期页流程中断: {e}")
 
 if __name__ == "__main__":
     driver = setup_driver()
