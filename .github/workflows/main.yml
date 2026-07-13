@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install selenium webdriver-manager telebot
+          pip install selenium webdriver-manager telebot Pillow
 
       - name: 安装并启动代理 (全自动适配内核)
         env:
