@@ -2,7 +2,6 @@ name: Server Auto Operation
 
 on:
   push:
-    branches: [ main ]
   schedule:
     # 每天北京时间 09:00 和 21:00 运行 (UTC 01:00 和 13:00)
     - cron: '0 1,13 * * *'
