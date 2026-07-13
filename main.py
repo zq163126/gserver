@@ -7,7 +7,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 配置区域
 EMAIL, PASSWORD = os.getenv("EMAIL"), os.getenv("PASSWORD")
 TG_BOT_TOKEN, TG_CHAT_ID = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT_ID")
 BASE_URL, PROXY_SOCKS5 = os.getenv("BASE_URL"), os.getenv("PROXY_SOCKS5")
@@ -31,50 +30,52 @@ def setup_driver():
     if PROXY_SOCKS5: options.add_argument(f'--proxy-server={PROXY_SOCKS5}')
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-def hide_ads(driver):
-    """穿透 Shadow DOM 的强力去广告逻辑"""
+def process_ads(driver):
     script = """
-    function hideElements(root) {
-        // 查找所有 z-index: 45 的 div
-        let all = root.querySelectorAll('div');
+    let found = false;
+    function scan(root) {
+        let all = root.querySelectorAll('div, always-on-top-app');
         all.forEach(el => {
             if (window.getComputedStyle(el).zIndex == 45) {
                 el.style.display = 'none';
+                found = true;
             }
         });
-        // 查找所有自定义的 always-on-top-app
-        let shadows = root.querySelectorAll('always-on-top-app');
-        shadows.forEach(s => {
-            if (s.shadowRoot) hideElements(s.shadowRoot);
-            s.style.display = 'none';
+        root.querySelectorAll('always-on-top-app').forEach(s => {
+            if (s.shadowRoot) scan(s.shadowRoot);
         });
     }
-    hideElements(document);
+    scan(document);
+    return found;
     """
-    try:
-        driver.execute_script(script)
-        print("[LOG] 已执行深度去广告（包含 Shadow DOM）")
-    except Exception as e:
-        print(f"[LOG] 去广告执行错误: {e}")
+    return driver.execute_script(script)
 
 def safe_action(driver, locator, action_type="click", timeout=15):
-    """查找/点击前的去广告预处理"""
-    hide_ads(driver)
-    wait = WebDriverWait(driver, timeout)
+    # 1. 查找前的状态确认
+    print(f"[LOG] 准备定位: {locator}")
+    
+    # 2. 查找前截图，明确当前页面是否有广告
+    driver.save_screenshot("before_action.png")
+    
+    # 3. 广告检测与清理
+    ads_found = process_ads(driver)
+    print(f"[LOG] 广告检测状态: {'已检测并清理' if ads_found else '未检测到广告'}")
+    
     try:
+        wait = WebDriverWait(driver, timeout)
         element = wait.until(EC.element_to_be_clickable(locator))
         if action_type == "click":
             element.click()
-            print(f"[LOG] 点击成功: {locator}")
+            print(f"[LOG] 操作成功: {locator}")
         return element
     except Exception as e:
-        print(f"[LOG] 定位失败: {locator}")
+        print(f"[LOG] !!! 查找失败，发送截图给用户排查...")
+        with open("before_action.png", "rb") as photo:
+            bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] 操作失败，定位元素: {locator} 时出错。")
         raise e
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
-    hide_ads(driver)
-    send_to_tg("已打开登录页", screenshot=True, driver=driver)
     driver.find_element(By.ID, "email").send_keys(EMAIL)
     driver.find_element(By.ID, "password").send_keys(PASSWORD)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
@@ -82,35 +83,29 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # 启动页
+    # 详情页
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
-    time.sleep(5)
-    hide_ads(driver)
-    send_to_tg("已打开详情页", screenshot=True, driver=driver)
+    time.sleep(10)
     
     try:
-        # 优化查找逻辑：使用 CSS 定位 Start 按钮
         btn = safe_action(driver, (By.XPATH, "//button[contains(., 'Start') or contains(., 'STOP')]"), "find")
         if "Start" in btn.text:
             safe_action(driver, (By.XPATH, "//button[contains(., 'Start')]"), "click")
-            send_to_tg("已点击 Start 按钮。")
+            send_to_tg("已执行启动操作。")
     except Exception as e:
-        send_to_tg(f"启动失败: {str(e)}", screenshot=True, driver=driver)
+        print(f"[LOG] 流程中断: {e}")
 
     # 续期页
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(5)
-    hide_ads(driver)
-    send_to_tg("已打开续期页", screenshot=True, driver=driver)
     try:
         expiry = safe_action(driver, (By.ID, "expires_at"), "find")
         val = expiry.get_attribute("value")
-        # 续期逻辑...
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).days <= 2:
             safe_action(driver, (By.XPATH, "//button[contains(text(), 'Renew')]"), "click")
             send_to_tg(f"续期已完成。")
     except Exception as e:
-        send_to_tg(f"续期失败: {str(e)}", screenshot=True, driver=driver)
+        print(f"[LOG] 续期流程中断: {e}")
 
 if __name__ == "__main__":
     driver = setup_driver()
