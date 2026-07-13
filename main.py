@@ -43,6 +43,16 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
+def human_like_click(driver, target):
+    """封装好的模拟真人点击逻辑"""
+    loc = target.location
+    size = target.size
+    cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+    actions = ActionChains(driver)
+    actions.move_by_offset(960, 100).perform()
+    actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+    return cx, cy
+
 def force_remove_and_disable_ads(driver):
     js = """
     var elements = document.querySelectorAll('div[class*="fixed"]');
@@ -74,6 +84,7 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
+    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -81,24 +92,18 @@ def manage_server(driver):
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
     
-    if target and target.text.strip().upper() == "START":
-        loc = target.location
-        size = target.size
-        cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
-        print(f"[LOG] 模拟移动并点击: X={cx}, Y={cy}")
-        
-        # --- 真人模拟：带路径的鼠标移动 ---
-        actions = ActionChains(driver)
-        # 1. 将鼠标移动到当前视窗的中上方作为起点
-        actions.move_by_offset(960, 100).perform()
-        # 2. 模拟从起点移动到目标按钮 (中间有微小偏差)
-        actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
-        
-        time.sleep(10)
-        send_to_tg_with_blue_dot("已执行带路径模拟的启动点击", driver, cx, cy)
+    if target:
+        btn_text = target.text.strip().upper()
+        if btn_text == "START":
+            cx, cy = human_like_click(driver, target)
+            time.sleep(10)
+            send_to_tg_with_blue_dot("已执行启动 (START) 操作", driver, cx, cy)
+        elif btn_text == "STOP":
+            send_to_tg_with_blue_dot("服务器在正常运行中，无须启动操作。", driver, 0, 0)
     else:
-        send_to_tg_with_blue_dot("未找到启动按钮", driver, 0, 0)
+        send_to_tg_with_blue_dot("未找到启动/停止按钮", driver, 0, 0)
 
+    # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -106,11 +111,11 @@ def manage_server(driver):
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
             renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
-            driver.execute_script("arguments[0].click();", renew_btn)
+            cx, cy = human_like_click(driver, renew_btn)
             time.sleep(5)
-            send_to_tg_with_blue_dot(f"续期完成: {val}", driver, 0, 0)
+            send_to_tg_with_blue_dot(f"已执行续期操作，到期日: {val}", driver, cx, cy)
         else:
-            send_to_tg_with_blue_dot(f"无需续期: {val}", driver, 0, 0)
+            send_to_tg_with_blue_dot(f"无需续期，到期日: {val}", driver, 0, 0)
     except Exception as e:
         send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver, 0, 0)
 
