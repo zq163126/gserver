@@ -1,4 +1,4 @@
-import os, time, datetime
+import os, time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -12,7 +12,6 @@ BASE_URL = os.getenv("BASE_URL")
 
 def setup_driver():
     options = Options()
-    # 修复 GitHub Actions 环境下的崩溃参数
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -23,9 +22,15 @@ def setup_driver():
     return webdriver.Chrome(service=service, options=options)
 
 def force_hide_ads_css(driver):
-    """通过注入 CSS 强制隐藏广告 DIV，等同于在开发工具操作"""
-    css = "div[style*='z-index: 45'] { display: none !important; visibility: hidden !important; pointer-events: none !important; }"
-    driver.execute_script(f"var s = document.createElement('style'); s.innerHTML = '{css}'; document.head.appendChild(s);")
+    """通过参数传递 CSS，彻底规避引号转义引发的 JavascriptException"""
+    css_content = "div[style*='z-index: 45'] { display: none !important; visibility: hidden !important; pointer-events: none !important; }"
+    js = """
+    var style = document.createElement('style');
+    style.type = 'text/css';
+    style.innerHTML = arguments[0];
+    document.head.appendChild(style);
+    """
+    driver.execute_script(js, css_content)
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
