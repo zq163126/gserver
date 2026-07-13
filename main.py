@@ -1,8 +1,9 @@
-import os, time, datetime, telebot
+import os, time, datetime, telebot, random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- 依赖项检查 ---
@@ -43,7 +44,6 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def force_remove_and_disable_ads(driver):
-    """通过定位 fixed 全屏元素彻底清除广告"""
     js = """
     var elements = document.querySelectorAll('div[class*="fixed"]');
     var removed = [];
@@ -74,7 +74,6 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -86,15 +85,20 @@ def manage_server(driver):
         loc = target.location
         size = target.size
         cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
-        print(f"[LOG] 目标中心坐标: X={cx}, Y={cy}")
+        print(f"[LOG] 模拟移动并点击: X={cx}, Y={cy}")
         
-        driver.execute_script("arguments[0].click();", target)
+        # --- 真人模拟：带路径的鼠标移动 ---
+        actions = ActionChains(driver)
+        # 1. 将鼠标移动到当前视窗的中上方作为起点
+        actions.move_by_offset(960, 100).perform()
+        # 2. 模拟从起点移动到目标按钮 (中间有微小偏差)
+        actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+        
         time.sleep(10)
-        send_to_tg_with_blue_dot("已尝试执行启动点击", driver, cx, cy)
+        send_to_tg_with_blue_dot("已执行带路径模拟的启动点击", driver, cx, cy)
     else:
         send_to_tg_with_blue_dot("未找到启动按钮", driver, 0, 0)
 
-    # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -104,9 +108,9 @@ def manage_server(driver):
             renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
             driver.execute_script("arguments[0].click();", renew_btn)
             time.sleep(5)
-            send_to_tg_with_blue_dot(f"续期完成，日期: {val}", driver, 0, 0)
+            send_to_tg_with_blue_dot(f"续期完成: {val}", driver, 0, 0)
         else:
-            send_to_tg_with_blue_dot(f"无需续期，日期: {val}", driver, 0, 0)
+            send_to_tg_with_blue_dot(f"无需续期: {val}", driver, 0, 0)
     except Exception as e:
         send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver, 0, 0)
 
