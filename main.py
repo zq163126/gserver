@@ -40,18 +40,30 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def handle_ads(driver):
+    """最底层的去广告逻辑，所有操作前均会调用"""
     try:
+        # 1. 尝试点击 No Thanks
         buttons = driver.find_elements(By.TAG_NAME, "button")
         for btn in buttons:
             if "No Thanks" in btn.text and btn.is_enabled():
                 btn.click()
-                time.sleep(2)
-                return
+                time.sleep(1)
+        # 2. 隐藏广告层
         ads_div = driver.find_elements(By.CSS_SELECTOR, "div[style*='z-index: 45']")
         if ads_div:
             driver.execute_script("arguments[0].style.display = 'none';", ads_div[0])
-    except Exception as e:
-        print(f"广告处理过程异常: {e}")
+    except Exception:
+        pass
+
+# --- 核心封装：强制去广告操作 ---
+def safe_find(driver, locator, timeout=20):
+    handle_ads(driver)  # 查找元素前去广告
+    return WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator))
+
+def safe_click(driver, locator):
+    handle_ads(driver)  # 点击前去广告
+    element = WebDriverWait(driver, 20).until(EC.element_to_be_clickable(locator))
+    element.click()
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -62,46 +74,40 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    wait = WebDriverWait(driver, 20)
-    
     # 1. 启动操作
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
-    time.sleep(10) # 强制等待10秒，等待数据读取
-    send_to_tg("已打开详情页，等待数据加载完成并处理广告。", screenshot=True, driver=driver)
-    handle_ads(driver)
+    time.sleep(10) # 等待初始数据加载
     
     try:
-        start_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Start') or contains(., 'STOP')]")))
+        # 查找 Start 按钮 (带去广告)
+        start_btn = safe_find(driver, (By.XPATH, "//button[contains(., 'Start') or contains(., 'STOP')]"))
+        
         if "Start" in start_btn.text:
-            start_btn.click()
-            time.sleep(3) # 等待点击后生效
-            send_to_tg("检测到 Start 按钮，已点击启动服务器。")
+            safe_click(driver, (By.XPATH, "//button[contains(., 'Start')]"))
+            time.sleep(2)
+            send_to_tg("已执行启动操作。")
         else:
-            send_to_tg("服务器当前状态为 STOP，无需执行启动操作。")
+            send_to_tg("服务器处于运行状态 (STOP)，无需启动。")
     except Exception as e:
         send_to_tg(f"启动操作失败: {str(e)}", screenshot=True, driver=driver)
 
     # 2. 续期操作
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
-    time.sleep(5)
-    handle_ads(driver)
     
     try:
-        expiry_input = wait.until(EC.presence_of_element_located((By.ID, "expires_at")))
+        # 获取日期 (带去广告)
+        expiry_input = safe_find(driver, (By.ID, "expires_at"))
         expiry_str = expiry_input.get_attribute("value")
         expiry_date = datetime.datetime.strptime(expiry_str.split(" - ")[0], "%d.%m.%Y")
         
         if (expiry_date - datetime.datetime.now()).days <= 2:
-            send_to_tg(f"当前到期日: {expiry_str}，即将到期，执行续期...")
-            renew_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Renew')]")))
-            renew_btn.click()
-            time.sleep(5) # 等待续期动作执行
-            
-            # 确认续期效果
-            driver.refresh()
+            send_to_tg(f"当前到期日: {expiry_str}，执行续期...")
+            safe_click(driver, (By.XPATH, "//button[contains(text(), 'Renew')]"))
             time.sleep(5)
-            new_expiry = driver.find_element(By.ID, "expires_at").get_attribute("value")
-            send_to_tg(f"续期操作完成。更新后的到期日期为: {new_expiry}")
+            
+            driver.refresh()
+            new_expiry = safe_find(driver, (By.ID, "expires_at")).get_attribute("value")
+            send_to_tg(f"续期操作完成。更新后到期日: {new_expiry}")
         else:
             send_to_tg(f"无需续期，当前到期日: {expiry_str}")
     except Exception as e:
