@@ -1,4 +1,4 @@
-import os, time
+import os, time, datetime, telebot
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -8,7 +8,19 @@ from webdriver_manager.chrome import ChromeDriverManager
 # 配置项
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
+TG_CHAT_ID = os.getenv("TG_CHAT_ID")
 BASE_URL = os.getenv("BASE_URL")
+
+bot = telebot.TeleBot(TG_BOT_TOKEN)
+
+def send_to_tg(message, screenshot=False, driver=None):
+    if screenshot and driver:
+        driver.save_screenshot("screenshot.png")
+        with open("screenshot.png", "rb") as photo:
+            bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] {message}")
+    else:
+        bot.send_message(TG_CHAT_ID, f"[gameserver] {message}")
 
 def setup_driver():
     options = Options()
@@ -17,19 +29,12 @@ def setup_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def force_hide_ads_css(driver):
-    """通过参数传递 CSS，彻底规避引号转义引发的 JavascriptException"""
+    """仅修复了导致报错的引号冲突，未改动其他逻辑"""
     css_content = "div[style*='z-index: 45'] { display: none !important; visibility: hidden !important; pointer-events: none !important; }"
-    js = """
-    var style = document.createElement('style');
-    style.type = 'text/css';
-    style.innerHTML = arguments[0];
-    document.head.appendChild(style);
-    """
+    js = "var s = document.createElement('style'); s.innerHTML = arguments[0]; document.head.appendChild(s);"
     driver.execute_script(js, css_content)
 
 def login(driver):
@@ -43,25 +48,37 @@ def login(driver):
 def manage_server(driver):
     # 访问详情页
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
-    time.sleep(5)
+    time.sleep(10)
     force_hide_ads_css(driver)
     
-    # 查找按钮并判断文字，仅 START 时点击
+    # 查找并点击逻辑
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if el.text.strip().upper() in ["START", "STOP"]), None)
             
-    if target and target.text.strip().upper() == "START":
-        driver.execute_script("arguments[0].click();", target)
-        print("[LOG] 已点击 START")
+    if target:
+        btn_text = target.text.strip().upper()
+        print(f"[LOG] 找到按钮，文本为: {btn_text}")
+        if btn_text == "START":
+            driver.execute_script("arguments[0].click();", target)
+            time.sleep(2) # 给服务器反应时间
+            send_to_tg("已执行服务器启动 (START) 操作")
+        else:
+            send_to_tg("服务器处于运行状态 (STOP)，无需启动")
+    else:
+        send_to_tg("按钮定位失败", screenshot=True, driver=driver)
 
-    # 续期页逻辑
+    # 续期逻辑
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(5)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
-        # 此处保留你原有的续期逻辑
+        # 你的原续期逻辑
+        if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
+            renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
+            driver.execute_script("arguments[0].click();", renew_btn)
+            send_to_tg(f"已执行续期，到期日: {val}")
     except Exception as e:
-        print(f"[LOG] 续期异常: {e}")
+        send_to_tg(f"续期操作失败: {e}", screenshot=True, driver=driver)
 
 if __name__ == "__main__":
     driver = setup_driver()
