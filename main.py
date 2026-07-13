@@ -5,7 +5,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
-from PIL import Image, ImageDraw # 用于绘制红点
 
 # 配置项
 EMAIL = os.getenv("EMAIL")
@@ -16,21 +15,10 @@ BASE_URL = os.getenv("BASE_URL")
 
 bot = telebot.TeleBot(TG_BOT_TOKEN)
 
-def draw_red_dot_on_screenshot(file_path, x, y):
-    """在截图中指定坐标画一个红点"""
-    img = Image.open(file_path)
-    draw = ImageDraw.Draw(img)
-    r = 10 # 红点半径
-    draw.ellipse((x - r, y - r, x + r, y + r), fill='red', outline='red')
-    img.save(file_path)
-
-def send_to_tg(message, screenshot=False, driver=None, x=None, y=None):
+def send_to_tg(message, screenshot=False, driver=None):
     if screenshot and driver:
-        file_path = "screenshot.png"
-        driver.save_screenshot(file_path)
-        if x and y:
-            draw_red_dot_on_screenshot(file_path, x, y)
-        with open(file_path, "rb") as photo:
+        driver.save_screenshot("screenshot.png")
+        with open("screenshot.png", "rb") as photo:
             bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] {message}")
     else:
         bot.send_message(TG_CHAT_ID, f"[gameserver] {message}")
@@ -58,6 +46,7 @@ def detect_and_handle_ads(driver):
     """
     found_elements = driver.execute_script(js)
     if found_elements: print(f"[LOG] 清理广告: {found_elements}")
+    else: print("[LOG] 未检测到任何广告遮罩")
     return len(found_elements) > 0
 
 def login(driver):
@@ -82,13 +71,13 @@ def manage_server(driver):
         loc = target.location
         size = target.size
         x, y = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
-        print(f"[LOG] 准备点击坐标: X={x}, Y={y}")
+        print(f"[LOG] 正在尝试点击坐标: X={x}, Y={y}")
         
-        # 执行点击
+        # 使用 ActionChains 移动并点击，更加模拟真实用户
         ActionChains(driver).move_to_element(target).click().perform()
         
         time.sleep(10)
-        send_to_tg(f"已点击 START，坐标: ({x}, {y})", screenshot=True, driver=driver, x=x, y=y)
+        send_to_tg(f"已尝试点击 START，坐标 ({x}, {y})，请检查状态截图。", screenshot=True, driver=driver)
     else:
         send_to_tg("无需启动或未找到按钮。", screenshot=True, driver=driver)
 
@@ -100,7 +89,7 @@ def manage_server(driver):
             renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
             renew_btn.click()
             time.sleep(5)
-            send_to_tg(f"已续期，到期日: {val}", screenshot=True, driver=driver)
+            send_to_tg(f"已执行续期，到期日: {val}", screenshot=True, driver=driver)
     except Exception as e:
         send_to_tg(f"续期异常: {str(e)}", screenshot=True, driver=driver)
 
