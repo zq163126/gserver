@@ -7,9 +7,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-EMAIL, PASSWORD = os.getenv("EMAIL"), os.getenv("PASSWORD")
-TG_BOT_TOKEN, TG_CHAT_ID = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT_ID")
-BASE_URL, PROXY_SOCKS5 = os.getenv("BASE_URL"), os.getenv("PROXY_SOCKS5")
+# 配置区域
+EMAIL = os.getenv("EMAIL")
+PASSWORD = os.getenv("PASSWORD")
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
+TG_CHAT_ID = os.getenv("TG_CHAT_ID")
+BASE_URL = os.getenv("BASE_URL")
+PROXY_SOCKS5 = os.getenv("PROXY_SOCKS5")
+
 bot = telebot.TeleBot(TG_BOT_TOKEN)
 
 def send_to_tg(message, screenshot=False, driver=None):
@@ -20,11 +25,20 @@ def send_to_tg(message, screenshot=False, driver=None):
     else:
         bot.send_message(TG_CHAT_ID, f"[gameserver] {message}")
 
+def setup_driver():
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+    if PROXY_SOCKS5: options.add_argument(f'--proxy-server={PROXY_SOCKS5}')
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
 def process_ads(driver):
+    """检测并隐藏广告"""
     script = """
     let found = false;
-    let all = document.querySelectorAll('div, always-on-top-app');
-    all.forEach(el => {
+    document.querySelectorAll('div, always-on-top-app').forEach(el => {
         if (window.getComputedStyle(el).zIndex == 45) {
             el.style.display = 'none';
             found = true;
@@ -35,13 +49,13 @@ def process_ads(driver):
     return driver.execute_script(script)
 
 def safe_action(driver, locator, action_type="click", timeout=10):
-    # 第一次尝试
+    """带重试的查找操作"""
     for attempt in range(2):
         print(f"[LOG] 尝试定位 {locator}, 第 {attempt+1} 次")
         
-        # 无论有没有广告，先清理一次
+        # 执行去广告
         found = process_ads(driver)
-        print(f"[LOG] 广告检测: {'找到并清理' if found else '未发现广告'}")
+        if found: print("[LOG] 检测并隐藏了广告")
         
         try:
             wait = WebDriverWait(driver, timeout)
@@ -50,18 +64,17 @@ def safe_action(driver, locator, action_type="click", timeout=10):
                 element.click()
                 print(f"[LOG] 点击成功: {locator}")
             return element
-        except Exception as e:
+        except Exception:
             print(f"[LOG] 第 {attempt+1} 次查找 {locator} 失败")
             if attempt == 0:
-                print("[LOG] 准备重试查找...")
-                time.sleep(2)
+                time.sleep(3) # 等待广告弹出或加载
                 continue
     
-    # 两次都失败，进行诊断
-    print(f"[LOG] !!! 致命错误：重试后依旧无法找到元素 {locator}")
+    # 两次都失败
+    print(f"[LOG] !!! 致命错误：无法找到元素 {locator}")
     driver.save_screenshot("failure.png")
     with open("failure.png", "rb") as photo:
-        bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] 无法定位元素: {locator}。请检查网页结构是否已变更。")
+        bot.send_photo(TG_CHAT_ID, photo, caption=f"[gameserver] 无法定位元素: {locator}")
     raise Exception(f"定位元素失败: {locator}")
 
 def login(driver):
