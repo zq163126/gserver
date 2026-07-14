@@ -44,10 +44,12 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """封装好的模拟真人点击逻辑"""
+    """还原最初有效的真人点击逻辑"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+    
+    # 严格按照你最初的逻辑进行移动
     actions = ActionChains(driver)
     actions.move_by_offset(960, 100).perform()
     actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
@@ -89,7 +91,7 @@ def manage_server(driver):
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    # 修改部分：已将关键字改为 Stop, Kill, Start
+    # 严谨的执行流程：Stop -> Kill -> Start
     steps = ["Stop", "Kill", "Start"]
     for step in steps:
         elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
@@ -102,7 +104,7 @@ def manage_server(driver):
             time.sleep(10)
         else:
             print(f"[LOG] 未找到 {step} 按钮")
-            send_to_tg_with_blue_dot(f"未找到 {step} 按钮，流程中断", driver, 0, 0)
+            send_to_tg_with_blue_dot(f"重启流程中断：未找到 {step} 按钮", driver, 0, 0)
             break
 
     # 续期页处理
