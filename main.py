@@ -13,6 +13,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+# 配置项
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
@@ -42,7 +43,31 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
+def force_remove_and_disable_ads(driver):
+    """恢复的去广告模块"""
+    js = """
+    var elements = document.querySelectorAll('div[class*="fixed"]');
+    var removed = [];
+    elements.forEach(function(el) {
+        var style = window.getComputedStyle(el);
+        if (style.position === 'fixed') {
+            removed.push(el.className);
+            el.remove();
+        }
+    });
+    var style = document.createElement('style');
+    style.innerHTML = 'div[class*="fixed"] { display: none !important; pointer-events: none !important; }';
+    document.head.appendChild(style);
+    return removed;
+    """
+    try:
+        removed_list = driver.execute_script(js)
+        if removed_list: print(f"[LOG] 已销毁全屏遮罩: {removed_list}")
+    except Exception as e:
+        print(f"[LOG] 广告清理脚本错误: {e}")
+
 def find_and_click(driver, keywords):
+    """逻辑：查找元素并点击，确保不越界"""
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
     
@@ -65,11 +90,10 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server_process(driver):
-    """服务器重启流程：STOP -> KILL -> START"""
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
+    force_remove_and_disable_ads(driver)
     
-    # 按照你的逻辑：STOP -> KILL -> START
     for action_name, keywords in [("STOP", ["STOP"]), ("KILL", ["KILL"]), ("START", ["START"])]:
         success, x, y = find_and_click(driver, keywords)
         if success:
@@ -84,9 +108,9 @@ def manage_server_process(driver):
     return True
 
 def renew_server_process(driver):
-    """续期流程"""
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
+    force_remove_and_disable_ads(driver)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
