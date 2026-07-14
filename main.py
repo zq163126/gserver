@@ -44,7 +44,7 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-"""封装好的模拟真人点击逻辑 (起点坐标随机化)"""
+# """封装好的模拟真人点击逻辑 (起点坐标随机化)"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
