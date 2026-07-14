@@ -44,7 +44,7 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """你提供的标准点击逻辑"""
+    """封装好的模拟真人点击逻辑"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
@@ -83,32 +83,28 @@ def login(driver):
     time.sleep(5)
     return "dashboard" in driver.current_url
 
-def get_element_by_text(driver, keywords):
-    """辅助查找工具，用于严谨查找 START/STOP/KILL"""
-    elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-    return next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
-
 def manage_server(driver):
     # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    # 严谨的重启流程：STOP -> KILL -> START
-    process_steps = [("STOP", ["STOP"]), ("KILL", ["KILL"]), ("START", ["START"])]
-    
-    for step_name, keywords in process_steps:
-        target = get_element_by_text(driver, keywords)
+    # 修改部分：严谨的 STOP -> KILL -> START 流程
+    steps = ["STOP", "KILL", "START"]
+    for step in steps:
+        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+        target = next((el for el in elements if el.text.strip() == step), None)
+        
         if target:
-            print(f"[LOG] 找到按钮: {step_name}，准备点击")
+            print(f"[LOG] 找到 {step} 按钮")
             cx, cy = human_like_click(driver, target)
-            time.sleep(10) # 点击后给网页反应时间
+            send_to_tg_with_blue_dot(f"已执行 {step} 操作", driver, cx, cy)
+            time.sleep(10)
         else:
-            if step_name == "START":
-                send_to_tg_with_blue_dot("重启流程结束，START按钮未找到。", driver, 0, 0)
-            else:
-                print(f"[LOG] 未找到 {step_name}，流程跳过")
-    
+            print(f"[LOG] 未找到 {step} 按钮")
+            send_to_tg_with_blue_dot(f"未找到 {step} 按钮，流程中断", driver, 0, 0)
+            break
+
     # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
