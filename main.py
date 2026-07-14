@@ -6,14 +6,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- 依赖项检查 ---
+# --- 依赖项 ---
 try:
     from PIL import Image, ImageDraw
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
 
-# 配置项
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
@@ -25,7 +24,7 @@ bot = telebot.TeleBot(TG_BOT_TOKEN)
 def send_to_tg_with_blue_dot(message, driver, x=0, y=0):
     file_path = "screenshot.png"
     driver.save_screenshot(file_path)
-    if PIL_AVAILABLE and x != 0 and y != 0:
+    if PIL_AVAILABLE and (x != 0 or y != 0):
         img = Image.open(file_path)
         draw = ImageDraw.Draw(img)
         r = 20
@@ -44,34 +43,18 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def find_and_click(driver, keywords):
-    """严谨的查找点击流程"""
     elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
     target = next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
     
     if target and target.is_displayed():
-        btn_text = target.text.strip()
-        print(f"[LOG] 找到目标: '{btn_text}', 准备执行点击...")
-        
         loc = target.location
         size = target.size
         cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
         
-        # 使用 move_to_element 代替 offset，这是最稳定的点击方式，绝不越界
-        actions = ActionChains(driver)
-        actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
-        
-        print(f"[LOG] 点击成功: '{btn_text}' at ({cx}, {cy})")
+        ActionChains(driver).move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+        print(f"[LOG] 已点击: {keywords}, 坐标: ({cx}, {cy})")
         return True, cx, cy
-    else:
-        print(f"[LOG] 未找到包含关键字 {keywords} 的可点击元素")
-        return False, 0, 0
-
-def force_remove_and_disable_ads(driver):
-    js = """
-    var elements = document.querySelectorAll('div[class*="fixed"]');
-    elements.forEach(function(el) { el.remove(); });
-    """
-    driver.execute_script(js)
+    return False, 0, 0
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -81,38 +64,37 @@ def login(driver):
     time.sleep(5)
     return "dashboard" in driver.current_url
 
-def manage_server(driver):
+def manage_server_process(driver):
+    """服务器重启流程：STOP -> KILL -> START"""
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
-    force_remove_and_disable_ads(driver)
     
-    # 按照严谨流程操作
-    # 1. 尝试找 STOP
-    success, x, y = find_and_click(driver, ["STOP"])
-    if success:
-        time.sleep(10)
-        # 2. 尝试找 KILL
-        success, x, y = find_and_click(driver, ["KILL"])
-        if not success:
-            send_to_tg_with_blue_dot("STOP点击成功，但未找到KILL按钮，流程中断。", driver)
-            return
-        time.sleep(10)
+    # 按照你的逻辑：STOP -> KILL -> START
+    for action_name, keywords in [("STOP", ["STOP"]), ("KILL", ["KILL"]), ("START", ["START"])]:
+        success, x, y = find_and_click(driver, keywords)
+        if success:
+            print(f"[LOG] {action_name} 操作成功")
+            time.sleep(10)
+        else:
+            print(f"[LOG] 未找到 {action_name} 按钮，流程中断")
+            send_to_tg_with_blue_dot(f"重启流程中断：未能执行 {action_name} 操作", driver)
+            return False
     
-    # 3. 找 START
-    success, x, y = find_and_click(driver, ["START"])
-    if success:
-        send_to_tg_with_blue_dot("已成功执行重启流程 (STOP->KILL->START)", driver, x, y)
-    else:
-        send_to_tg_with_blue_dot("重启流程失败：未找到START按钮。", driver)
+    send_to_tg_with_blue_dot("服务器已成功重启 (STOP->KILL->START)", driver, x, y)
+    return True
 
-    # 续期处理
+def renew_server_process(driver):
+    """续期流程"""
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
             success, x, y = find_and_click(driver, ["RENEW"])
-            if success: send_to_tg_with_blue_dot(f"续期成功，到期日: {val}", driver, x, y)
+            if success:
+                send_to_tg_with_blue_dot(f"续期成功，到期日: {val}", driver, x, y)
+            else:
+                send_to_tg_with_blue_dot("续期失败：未找到RENEW按钮", driver)
         else:
             print(f"[LOG] 无需续期，到期日: {val}")
     except Exception as e:
@@ -121,6 +103,8 @@ def manage_server(driver):
 if __name__ == "__main__":
     driver = setup_driver()
     try:
-        if login(driver): manage_server(driver)
+        if login(driver):
+            manage_server_process(driver)
+            renew_server_process(driver)
     finally:
         driver.quit()
