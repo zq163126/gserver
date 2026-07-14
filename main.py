@@ -44,18 +44,19 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """恢复使用鼠标移动链，确保精准定位并绕过防护"""
+    """模拟真人点击逻辑：增加小范围起始点随机性，严防越界"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
     
-    actions = ActionChains(driver)
-    # 模拟鼠标移动到元素中心，触发必要的 hover/mousemove 事件
-    actions.move_to_element(target)
-    actions.pause(random.uniform(0.5, 1.2))
-    actions.click()
-    actions.perform()
+    # 在 960, 100 附近做 ±30 的小范围随机，确保永远不触碰屏幕边缘
+    start_x = random.randint(930, 990)
+    start_y = random.randint(70, 130)
     
+    actions = ActionChains(driver)
+    # 先移动到随机安全起点，再平滑移动到元素
+    actions.move_by_offset(start_x, start_y).perform()
+    actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
     return cx, cy
 
 def force_remove_and_disable_ads(driver):
