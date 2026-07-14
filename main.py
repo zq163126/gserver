@@ -44,12 +44,15 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """封装好的模拟真人点击逻辑"""
+"""封装好的模拟真人点击逻辑 (起点坐标随机化)"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+    # 生成随机起点：X在100-1800之间，Y在50-150之间
+    start_x = random.randint(100, 1800)
+    start_y = random.randint(50, 150)
     actions = ActionChains(driver)
-    actions.move_by_offset(960, 100).perform()
+    actions.move_by_offset(start_x, start_y).perform()
     actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
     return cx, cy
 
@@ -101,6 +104,7 @@ def manage_server(driver):
             # 刷新并重新获取以检查是否出现 Kill 或 Start
             driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
             time.sleep(8)
+            force_remove_and_disable_ads(driver)
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
             target = next((el for el in elements if "KILL" in el.text.strip().upper() or "START" in el.text.strip().upper()), None)
             btn_text = target.text.strip().upper() if target else ""
@@ -111,6 +115,7 @@ def manage_server(driver):
             time.sleep(10)
             driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
             time.sleep(8)
+            force_remove_and_disable_ads(driver)
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
             target = next((el for el in elements if "START" in el.text.strip().upper()), None)
             
