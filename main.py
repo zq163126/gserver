@@ -44,15 +44,18 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """封装好的模拟真人点击逻辑 (已修复越界问题)"""
+    """恢复使用鼠标移动链，确保精准定位并绕过防护"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
     
-    # 使用基于元素的偏移点击，彻底避免坐标越界
     actions = ActionChains(driver)
-    actions.move_to_element_with_offset(target, random.randint(-5, 5), random.randint(-5, 5))
-    actions.pause(random.uniform(0.5, 1.2)).click().perform()
+    # 模拟鼠标移动到元素中心，触发必要的 hover/mousemove 事件
+    actions.move_to_element(target)
+    actions.pause(random.uniform(0.5, 1.2))
+    actions.click()
+    actions.perform()
+    
     return cx, cy
 
 def force_remove_and_disable_ads(driver):
