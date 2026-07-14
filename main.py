@@ -44,18 +44,15 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """真人模拟点击：使用基于元素的偏移，彻底避免越界"""
+    """还原最初有效的逻辑：先移到屏幕上方再移动到元素"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
     
+    # 使用你最初的那个逻辑：先移动到 (960, 100)，再移动到元素
     actions = ActionChains(driver)
-    # 在按钮中心点周围随机 ±5 像素点击，这是最稳妥的逻辑
-    actions.move_to_element_with_offset(target, random.randint(-5, 5), random.randint(-5, 5))
-    actions.pause(random.uniform(0.5, 1.2))
-    actions.click()
-    actions.perform()
-    
+    actions.move_by_offset(960, 100).perform()
+    actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
     return cx, cy
 
 def force_remove_and_disable_ads(driver):
@@ -103,21 +100,19 @@ def manage_server(driver):
     
     if target:
         btn_text = target.text.strip().upper()
-        # 1. 如果是停止状态 (STOP)，执行停止逻辑
+        # 1. STOP -> KILL -> START 流程
         if "STOP" in btn_text:
             human_like_click(driver, target)
             time.sleep(10)
             target = get_target()
             btn_text = target.text.strip().upper() if target else ""
             
-        # 2. 如果是 KILL 状态，执行点击
         if target and "KILL" in btn_text:
             human_like_click(driver, target)
             time.sleep(10)
             target = get_target()
             btn_text = target.text.strip().upper() if target else ""
             
-        # 3. 如果是启动状态 (START)，执行启动逻辑
         if target and "START" in btn_text:
             cx, cy = human_like_click(driver, target)
             time.sleep(10)
