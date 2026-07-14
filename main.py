@@ -44,20 +44,17 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """真人模拟点击：重置鼠标坐标 -> 随机起始点 -> 滑向目标"""
+    """真人模拟点击：使用基于元素的偏移，彻底避免越界"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
     
-    # 随机起始坐标：960±30, 100±30
-    start_x = random.randint(930, 990)
-    start_y = random.randint(70, 130)
-    
-    # 逻辑：先强制甩到负坐标归位，再移动到随机起点，最后平滑移动点击
-    # 这样可以确保任何时候 ActionChains 都是从已知点出发，避免 OutOfBounds 报错
-    ActionChains(driver).move_by_offset(-1000, -1000).perform()
-    ActionChains(driver).move_by_offset(start_x, start_y).perform()
-    ActionChains(driver).move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+    actions = ActionChains(driver)
+    # 在按钮中心点周围随机 ±5 像素点击，这是最稳妥的逻辑
+    actions.move_to_element_with_offset(target, random.randint(-5, 5), random.randint(-5, 5))
+    actions.pause(random.uniform(0.5, 1.2))
+    actions.click()
+    actions.perform()
     
     return cx, cy
 
