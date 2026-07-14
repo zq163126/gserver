@@ -89,8 +89,8 @@ def manage_server(driver):
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    # 修改部分：严谨的 STOP -> KILL -> START 流程
-    steps = ["STOP", "KILL", "START"]
+    # 修改部分：已将关键字改为 Stop, Kill, Start
+    steps = ["Stop", "Kill", "Start"]
     for step in steps:
         elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
         target = next((el for el in elements if el.text.strip() == step), None)
