@@ -49,7 +49,6 @@ def human_like_click(driver, target):
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
     actions = ActionChains(driver)
-    # 通过reset_actions()防止重复移动导致的越界
     actions.reset_actions() 
     actions.move_by_offset(960, 100).perform()
     actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
@@ -91,21 +90,33 @@ def manage_server(driver):
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    # 按照你的要求：只改需要修改的查找部分，其他逻辑一字不动
-    steps = ["Stop", "Kill", "Start"]
-    for step in steps:
-        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-        target = next((el for el in elements if el.text.strip() == step), None)
+    # 获取页面所有可点击元素
+    elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+    
+    # 查找第一个关键状态按钮
+    start_btn = next((el for el in elements if el.text.strip() == "Start"), None)
+    stop_btn = next((el for el in elements if el.text.strip() == "Stop"), None)
+    
+    if start_btn:
+        print("[LOG] 检测到 Start 按钮，服务器状态为 Offline")
+        cx, cy = human_like_click(driver, start_btn)
+        send_to_tg_with_blue_dot("检测到 Offline，已执行 Start 操作", driver, cx, cy)
+    elif stop_btn:
+        print("[LOG] 检测到 Stop 按钮，执行重启环节")
+        cx, cy = human_like_click(driver, stop_btn)
+        send_to_tg_with_blue_dot("已执行 Stop 操作", driver, cx, cy)
+        time.sleep(10)
         
-        if target:
-            print(f"[LOG] 找到 {step} 按钮")
-            cx, cy = human_like_click(driver, target)
-            send_to_tg_with_blue_dot(f"已执行 {step} 操作", driver, cx, cy)
-            time.sleep(10)
-        else:
-            print(f"[LOG] 未找到 {step} 按钮")
-            send_to_tg_with_blue_dot(f"未找到 {step} 按钮，流程中断", driver, 0, 0)
-            break
+        # 重新扫描查找 Kill 按钮
+        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+        kill_btn = next((el for el in elements if el.text.strip() == "Kill"), None)
+        if kill_btn:
+            print("[LOG] 检测到 Kill 按钮，执行点击")
+            cx, cy = human_like_click(driver, kill_btn)
+            send_to_tg_with_blue_dot("已执行 Kill 操作", driver, cx, cy)
+    else:
+        print("[LOG] 未找到 Start 或 Stop 按钮")
+        send_to_tg_with_blue_dot("未找到 Start/Stop 按钮", driver, 0, 0)
 
     # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
