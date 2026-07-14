@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- 依赖项 ---
+# --- 依赖项检查 ---
 try:
     from PIL import Image, ImageDraw
     PIL_AVAILABLE = True
@@ -22,10 +22,10 @@ BASE_URL = os.getenv("BASE_URL")
 
 bot = telebot.TeleBot(TG_BOT_TOKEN)
 
-def send_to_tg_with_blue_dot(message, driver, x=0, y=0):
+def send_to_tg_with_blue_dot(message, driver, x, y):
     file_path = "screenshot.png"
     driver.save_screenshot(file_path)
-    if PIL_AVAILABLE and (x != 0 or y != 0):
+    if PIL_AVAILABLE and x != 0 and y != 0:
         img = Image.open(file_path)
         draw = ImageDraw.Draw(img)
         r = 20
@@ -43,8 +43,17 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
+def human_like_click(driver, target):
+    """你提供的标准点击逻辑"""
+    loc = target.location
+    size = target.size
+    cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+    actions = ActionChains(driver)
+    actions.move_by_offset(960, 100).perform()
+    actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+    return cx, cy
+
 def force_remove_and_disable_ads(driver):
-    """恢复的去广告模块"""
     js = """
     var elements = document.querySelectorAll('div[class*="fixed"]');
     var removed = [];
@@ -66,21 +75,6 @@ def force_remove_and_disable_ads(driver):
     except Exception as e:
         print(f"[LOG] 广告清理脚本错误: {e}")
 
-def find_and_click(driver, keywords):
-    """逻辑：查找元素并点击，确保不越界"""
-    elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-    target = next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
-    
-    if target and target.is_displayed():
-        loc = target.location
-        size = target.size
-        cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
-        
-        ActionChains(driver).move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
-        print(f"[LOG] 已点击: {keywords}, 坐标: ({cx}, {cy})")
-        return True, cx, cy
-    return False, 0, 0
-
 def login(driver):
     driver.get(f"{BASE_URL}/login")
     driver.find_element(By.ID, "email").send_keys(EMAIL)
@@ -89,46 +83,51 @@ def login(driver):
     time.sleep(5)
     return "dashboard" in driver.current_url
 
-def manage_server_process(driver):
+def get_element_by_text(driver, keywords):
+    """辅助查找工具，用于严谨查找 START/STOP/KILL"""
+    elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+    return next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
+
+def manage_server(driver):
+    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    for action_name, keywords in [("STOP", ["STOP"]), ("KILL", ["KILL"]), ("START", ["START"])]:
-        success, x, y = find_and_click(driver, keywords)
-        if success:
-            print(f"[LOG] {action_name} 操作成功")
-            time.sleep(10)
-        else:
-            print(f"[LOG] 未找到 {action_name} 按钮，流程中断")
-            send_to_tg_with_blue_dot(f"重启流程中断：未能执行 {action_name} 操作", driver)
-            return False
+    # 严谨的重启流程：STOP -> KILL -> START
+    process_steps = [("STOP", ["STOP"]), ("KILL", ["KILL"]), ("START", ["START"])]
     
-    send_to_tg_with_blue_dot("服务器已成功重启 (STOP->KILL->START)", driver, x, y)
-    return True
-
-def renew_server_process(driver):
+    for step_name, keywords in process_steps:
+        target = get_element_by_text(driver, keywords)
+        if target:
+            print(f"[LOG] 找到按钮: {step_name}，准备点击")
+            cx, cy = human_like_click(driver, target)
+            time.sleep(10) # 点击后给网页反应时间
+        else:
+            if step_name == "START":
+                send_to_tg_with_blue_dot("重启流程结束，START按钮未找到。", driver, 0, 0)
+            else:
+                print(f"[LOG] 未找到 {step_name}，流程跳过")
+    
+    # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
-            success, x, y = find_and_click(driver, ["RENEW"])
-            if success:
-                send_to_tg_with_blue_dot(f"续期成功，到期日: {val}", driver, x, y)
-            else:
-                send_to_tg_with_blue_dot("续期失败：未找到RENEW按钮", driver)
+            renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
+            cx, cy = human_like_click(driver, renew_btn)
+            time.sleep(5)
+            send_to_tg_with_blue_dot(f"已执行续期操作，到期日: {val}", driver, cx, cy)
         else:
-            print(f"[LOG] 无需续期，到期日: {val}")
+            send_to_tg_with_blue_dot(f"无需续期，到期日: {val}", driver, 0, 0)
     except Exception as e:
-        send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver)
+        send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver, 0, 0)
 
 if __name__ == "__main__":
     driver = setup_driver()
     try:
-        if login(driver):
-            manage_server_process(driver)
-            renew_server_process(driver)
+        if login(driver): manage_server(driver)
     finally:
         driver.quit()
