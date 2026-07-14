@@ -44,7 +44,7 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """恢复之前验证通过的点击逻辑"""
+    """封装好的模拟真人点击逻辑"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
@@ -84,6 +84,7 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
+    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -93,26 +94,27 @@ def manage_server(driver):
     
     if target:
         btn_text = target.text.strip().upper()
-        # 如果是停止状态，先点一次
+        # 如果是停止状态 (包含STOP字符)，执行停止逻辑
         if "STOP" in btn_text:
             cx, cy = human_like_click(driver, target)
             time.sleep(15)
-            # 刷新页面或重新定位获取新状态
+            # 刷新并重新获取以执行后续启动
             driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
             time.sleep(8)
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
             target = next((el for el in elements if "START" in el.text.strip().upper()), None)
             
-        # 点击启动
+        # 如果是启动状态 (包含START字符)，执行启动逻辑
         if target and "START" in target.text.strip().upper():
             cx, cy = human_like_click(driver, target)
             time.sleep(10)
             send_to_tg_with_blue_dot("已执行服务器重启操作", driver, cx, cy)
         else:
-            send_to_tg_with_blue_dot("未找到启动按钮或重启失败", driver, 0, 0)
+            send_to_tg_with_blue_dot("未找到可执行的启动按钮", driver, 0, 0)
     else:
         send_to_tg_with_blue_dot("未找到启动/停止按钮", driver, 0, 0)
 
+    # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
