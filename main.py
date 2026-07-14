@@ -22,7 +22,7 @@ BASE_URL = os.getenv("BASE_URL")
 
 bot = telebot.TeleBot(TG_BOT_TOKEN)
 
-def send_to_tg_with_blue_dot(message, driver, x, y):
+def send_to_tg_with_blue_dot(message, driver, x=0, y=0):
     file_path = "screenshot.png"
     driver.save_screenshot(file_path)
     if PIL_AVAILABLE and x != 0 and y != 0:
@@ -43,39 +43,35 @@ def setup_driver():
     options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-def human_like_click(driver, target):
-    """还原最初有效的逻辑：先移到屏幕上方再移动到元素"""
-    loc = target.location
-    size = target.size
-    cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+def find_and_click(driver, keywords):
+    """严谨的查找点击流程"""
+    elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+    target = next((el for el in elements if any(s in el.text.strip().upper() for s in keywords)), None)
     
-    # 使用你最初的那个逻辑：先移动到 (960, 100)，再移动到元素
-    actions = ActionChains(driver)
-    actions.move_by_offset(960, 100).perform()
-    actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
-    return cx, cy
+    if target and target.is_displayed():
+        btn_text = target.text.strip()
+        print(f"[LOG] 找到目标: '{btn_text}', 准备执行点击...")
+        
+        loc = target.location
+        size = target.size
+        cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
+        
+        # 使用 move_to_element 代替 offset，这是最稳定的点击方式，绝不越界
+        actions = ActionChains(driver)
+        actions.move_to_element(target).pause(random.uniform(0.5, 1.2)).click().perform()
+        
+        print(f"[LOG] 点击成功: '{btn_text}' at ({cx}, {cy})")
+        return True, cx, cy
+    else:
+        print(f"[LOG] 未找到包含关键字 {keywords} 的可点击元素")
+        return False, 0, 0
 
 def force_remove_and_disable_ads(driver):
     js = """
     var elements = document.querySelectorAll('div[class*="fixed"]');
-    var removed = [];
-    elements.forEach(function(el) {
-        var style = window.getComputedStyle(el);
-        if (style.position === 'fixed') {
-            removed.push(el.className);
-            el.remove();
-        }
-    });
-    var style = document.createElement('style');
-    style.innerHTML = 'div[class*="fixed"] { display: none !important; pointer-events: none !important; }';
-    document.head.appendChild(style);
-    return removed;
+    elements.forEach(function(el) { el.remove(); });
     """
-    try:
-        removed_list = driver.execute_script(js)
-        if removed_list: print(f"[LOG] 已销毁全屏遮罩: {removed_list}")
-    except Exception as e:
-        print(f"[LOG] 广告清理脚本错误: {e}")
+    driver.execute_script(js)
 
 def login(driver):
     driver.get(f"{BASE_URL}/login")
@@ -86,57 +82,41 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
     
-    # 获取按钮的辅助函数
-    def get_target():
-        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-        return next((el for el in elements if any(s in el.text.strip().upper() for s in ["START", "STOP", "KILL"])), None)
-
-    target = get_target()
+    # 按照严谨流程操作
+    # 1. 尝试找 STOP
+    success, x, y = find_and_click(driver, ["STOP"])
+    if success:
+        time.sleep(10)
+        # 2. 尝试找 KILL
+        success, x, y = find_and_click(driver, ["KILL"])
+        if not success:
+            send_to_tg_with_blue_dot("STOP点击成功，但未找到KILL按钮，流程中断。", driver)
+            return
+        time.sleep(10)
     
-    if target:
-        btn_text = target.text.strip().upper()
-        # 1. STOP -> KILL -> START 流程
-        if "STOP" in btn_text:
-            human_like_click(driver, target)
-            time.sleep(10)
-            target = get_target()
-            btn_text = target.text.strip().upper() if target else ""
-            
-        if target and "KILL" in btn_text:
-            human_like_click(driver, target)
-            time.sleep(10)
-            target = get_target()
-            btn_text = target.text.strip().upper() if target else ""
-            
-        if target and "START" in btn_text:
-            cx, cy = human_like_click(driver, target)
-            time.sleep(10)
-            send_to_tg_with_blue_dot("已执行服务器重启 (STOP->KILL->START) 操作", driver, cx, cy)
-        else:
-            send_to_tg_with_blue_dot(f"当前按钮状态为 {btn_text}，未能完成重启。", driver, 0, 0)
+    # 3. 找 START
+    success, x, y = find_and_click(driver, ["START"])
+    if success:
+        send_to_tg_with_blue_dot("已成功执行重启流程 (STOP->KILL->START)", driver, x, y)
     else:
-        send_to_tg_with_blue_dot("未找到启动/停止/KILL按钮", driver, 0, 0)
+        send_to_tg_with_blue_dot("重启流程失败：未找到START按钮。", driver)
 
-    # 续期页处理
+    # 续期处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
-    force_remove_and_disable_ads(driver)
     try:
         val = driver.find_element(By.ID, "expires_at").get_attribute("value")
         if (datetime.datetime.strptime(val.split(" - ")[0], "%d.%m.%Y") - datetime.datetime.now()).total_seconds() <= 7200:
-            renew_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Renew')]")
-            cx, cy = human_like_click(driver, renew_btn)
-            time.sleep(5)
-            send_to_tg_with_blue_dot(f"已执行续期操作，到期日: {val}", driver, cx, cy)
+            success, x, y = find_and_click(driver, ["RENEW"])
+            if success: send_to_tg_with_blue_dot(f"续期成功，到期日: {val}", driver, x, y)
         else:
-            send_to_tg_with_blue_dot(f"无需续期，到期日: {val}", driver, 0, 0)
+            print(f"[LOG] 无需续期，到期日: {val}")
     except Exception as e:
-        send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver, 0, 0)
+        send_to_tg_with_blue_dot(f"续期异常: {str(e)}", driver)
 
 if __name__ == "__main__":
     driver = setup_driver()
