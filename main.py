@@ -97,15 +97,16 @@ def manage_server(driver):
         # 如果是停止状态 (包含STOP字符)，执行停止逻辑
         if "STOP" in btn_text:
             human_like_click(driver, target)
-            time.sleep(10)
-            # 刷新页面检查是否出现 Kill
+            time.sleep(15)
+            # 刷新并重新获取以检查是否出现 Kill 或 Start
             driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
             time.sleep(8)
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-            target = next((el for el in elements if "KILL" in el.text.strip().upper()), None)
+            target = next((el for el in elements if "KILL" in el.text.strip().upper() or "START" in el.text.strip().upper()), None)
+            btn_text = target.text.strip().upper() if target else ""
             
-        # 如果出现了 Kill，点一次
-        if target and "KILL" in target.text.strip().upper():
+        # 如果出现了 Kill，处理它
+        if target and "KILL" in btn_text:
             human_like_click(driver, target)
             time.sleep(10)
             driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
@@ -113,15 +114,15 @@ def manage_server(driver):
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
             target = next((el for el in elements if "START" in el.text.strip().upper()), None)
             
-        # 最后执行启动
+        # 如果是启动状态 (包含START字符)，执行启动逻辑
         if target and "START" in target.text.strip().upper():
             cx, cy = human_like_click(driver, target)
             time.sleep(10)
-            send_to_tg_with_blue_dot("已执行服务器重启 (STOP->KILL->START) 操作", driver, cx, cy)
+            send_to_tg_with_blue_dot("已执行服务器重启操作", driver, cx, cy)
         else:
-            send_to_tg_with_blue_dot("未能完成完整重启逻辑，请检查截图。", driver, 0, 0)
+            send_to_tg_with_blue_dot("未找到可执行的启动按钮", driver, 0, 0)
     else:
-        send_to_tg_with_blue_dot("未找到启动/停止/KILL按钮", driver, 0, 0)
+        send_to_tg_with_blue_dot("未找到启动/停止按钮", driver, 0, 0)
 
     # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
