@@ -44,7 +44,7 @@ def setup_driver():
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def human_like_click(driver, target):
-    """封装好的模拟真人点击逻辑"""
+    """恢复之前验证通过的点击逻辑"""
     loc = target.location
     size = target.size
     cx, cy = int(loc['x'] + size['width'] / 2), int(loc['y'] + size['height'] / 2)
@@ -84,7 +84,6 @@ def login(driver):
     return "dashboard" in driver.current_url
 
 def manage_server(driver):
-    # 详情页处理
     driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
@@ -94,27 +93,26 @@ def manage_server(driver):
     
     if target:
         btn_text = target.text.strip().upper()
-        # 如果是停止状态 (STOP/STOPING)，先点一次停止
+        # 如果是停止状态，先点一次
         if "STOP" in btn_text:
             cx, cy = human_like_click(driver, target)
-            print(f"[LOG] 正在执行停止操作，坐标: {cx}, {cy}")
-            time.sleep(15) # 等待服务器停止
-            # 重新获取按钮以检测是否变回 START
+            time.sleep(15)
+            # 刷新页面或重新定位获取新状态
+            driver.get(f"{BASE_URL}/gameserver/611226956150741300/details")
+            time.sleep(8)
             elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
-            target = next((el for el in elements if "START" in el.text.strip().upper() or "STOP" in el.text.strip().upper()), None)
-            btn_text = target.text.strip().upper() if target else ""
-        
-        # 如果是启动状态 (START/STARTING)，点击启动
-        if "START" in btn_text:
+            target = next((el for el in elements if "START" in el.text.strip().upper()), None)
+            
+        # 点击启动
+        if target and "START" in target.text.strip().upper():
             cx, cy = human_like_click(driver, target)
             time.sleep(10)
-            send_to_tg_with_blue_dot("已执行服务器重启 (STOP->START) 操作", driver, cx, cy)
+            send_to_tg_with_blue_dot("已执行服务器重启操作", driver, cx, cy)
         else:
-            send_to_tg_with_blue_dot("未能完成重启逻辑，请检查截图。", driver, 0, 0)
+            send_to_tg_with_blue_dot("未找到启动按钮或重启失败", driver, 0, 0)
     else:
         send_to_tg_with_blue_dot("未找到启动/停止按钮", driver, 0, 0)
 
-    # 续期页处理
     driver.get(f"{BASE_URL}/service/611226958331781095/renew")
     time.sleep(8)
     force_remove_and_disable_ads(driver)
