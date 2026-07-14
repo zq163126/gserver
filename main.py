@@ -100,20 +100,28 @@ def manage_server(driver):
     if start_btn:
         print("[LOG] 检测到 Start 按钮，服务器状态为 Offline")
         cx, cy = human_like_click(driver, start_btn)
-        send_to_tg_with_blue_dot("检测到 Offline，已执行 Start 操作", driver, cx, cy)
+        send_to_tg_with_blue_dot("发现服务器不在线，正在进行启动操作。", driver, cx, cy)
     elif stop_btn:
         print("[LOG] 检测到 Stop 按钮，执行重启环节")
         cx, cy = human_like_click(driver, stop_btn)
-        send_to_tg_with_blue_dot("已执行 Stop 操作", driver, cx, cy)
+        send_to_tg_with_blue_dot("正在进行服务器重启操作。", driver, cx, cy)
         time.sleep(10)
         
-        # 重新扫描查找 Kill 按钮
+        # 重新扫描查找 Kill 和 Start 按钮
         elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
         kill_btn = next((el for el in elements if el.text.strip() == "Kill"), None)
         if kill_btn:
             print("[LOG] 检测到 Kill 按钮，执行点击")
             cx, cy = human_like_click(driver, kill_btn)
-            send_to_tg_with_blue_dot("已执行 Kill 操作", driver, cx, cy)
+            send_to_tg_with_blue_dot("正在进行服务器重启操作 (Kill环节)。", driver, cx, cy)
+            time.sleep(10)
+            
+        elements = driver.find_elements(By.XPATH, "//*[self::button or self::div or self::span or self::a]")
+        start_btn = next((el for el in elements if el.text.strip() == "Start"), None)
+        if start_btn:
+            print("[LOG] 检测到 Start 按钮，执行重启最后环节")
+            cx, cy = human_like_click(driver, start_btn)
+            send_to_tg_with_blue_dot("正在进行服务器重启操作 (Start环节)。", driver, cx, cy)
     else:
         print("[LOG] 未找到 Start 或 Stop 按钮")
         send_to_tg_with_blue_dot("未找到 Start/Stop 按钮", driver, 0, 0)
